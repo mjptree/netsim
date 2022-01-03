@@ -1,0 +1,22 @@
+[general]
+stop_time = { min = 2 }
+
+[network.graph]
+node = { id = 0, host_bandwidth_down = { mbit = 140 } }
+edge = { source = 0, target = 0, latency = { ms = 50 }, packet_loss = 0.01 }
+
+[[hosts]]
+name = "server"
+network_node_id = 0
+processes = [
+    { path = "/usr/sbin/nginx", args = "-c ../../../nginx.conf -p", start_time = 1 }
+]
+
+[[hosts]]
+name = "client"
+network_node_id = 1
+quantity = 20
+options = { log_level = "debug" }
+processes = [
+    { path = "/usr/bin/curl", args = "server --silent", start_time = 5 }
+]
