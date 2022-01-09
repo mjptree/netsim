@@ -2,7 +2,8 @@ use std::error;
 use std::io;
 use std::string::ParseError;
 
-use crate::driver::Driver;
+use crate::cli::Args;
+use crate::sim::Driver;
 
 pub struct App;
 
@@ -14,7 +15,7 @@ impl App {
 pub struct AppBuilder;
 
 impl AppBuilder {
-    pub fn with_args(args: Vec<String>) -> Result<Self, ParseError> {
+    pub fn with_args(cli_args: Args) -> Result<Self, ParseError> {
         Ok(Self)
     }
 

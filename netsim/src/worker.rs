@@ -2,13 +2,10 @@ use core::cell;
 use std::lazy;
 use std::sync::{Arc, Mutex};
 
-use crate::event::Event;
 use crate::host::Host;
-use crate::manager::Manager;
-use crate::scheduler::{self, Scheduler};
-use crate::task::Task;
-use crate::time::{EmulatedTime, SimulationTime};
+use crate::time::EmulatedTime;
 
+#[derive(Clone, Copy)]
 pub struct WorkerId(u32);
 
 pub struct Process {
@@ -58,7 +55,7 @@ impl Worker {
 
     fn with<F, R>(func: F) -> Option<R>
     where
-        F: FnOnce(&Worker) -> R,
+        F: FnOnce(&Self) -> R,
     {
         WORKER
             .try_with(|worker| worker.get().map(|worker| func(&worker.borrow())))
@@ -68,7 +65,7 @@ impl Worker {
 
     fn with_mut<F, R>(func: F) -> Option<R>
     where
-        F: FnOnce(&mut Worker) -> R,
+        F: FnOnce(&mut Self) -> R,
     {
         WORKER
             .try_with(|worker| worker.get().map(|worker| func(&mut worker.borrow_mut())))
@@ -77,58 +74,68 @@ impl Worker {
     }
 
     pub fn set_active_host(host: Arc<Host>) {
-        let _ = Worker::with_mut(|worker| worker.active_host.replace(host)).unwrap();
+        let _ = Self::with_mut(|worker| worker.active_host.replace(host))
+            .expect("tried to set active host on uninitialized worker");
     }
 
     pub fn clear_active_host() {
-        let _ = Worker::with_mut(|worker| worker.active_host.take()).unwrap();
+        let _ = Self::with_mut(|worker| worker.active_host.take())
+            .expect("tried to clear active host on uninitialized worker");
     }
 
     pub fn with_active_host<F, R>(func: F) -> Option<R>
     where
         F: FnOnce(&Arc<Host>) -> R,
     {
-        Worker::with(|worker| worker.active_host.as_ref().map(func)).flatten()
+        Self::with(|worker| worker.active_host.as_ref().map(func)).flatten()
     }
 
     pub fn set_active_process(process: Process) {
-        let _ = Worker::with_mut(|worker| worker.active_process.replace(process)).unwrap();
+        let _ = Self::with_mut(|worker| worker.active_process.replace(process))
+            .expect("tried to set active process on uninitialized worker");
     }
 
     pub fn clear_active_process() {
-        let _ = Worker::with_mut(|worker| worker.active_process.take()).unwrap();
+        let _ = Self::with_mut(|worker| worker.active_process.take())
+            .expect("tried to clear active process on uninitialized worker");
     }
 
     pub fn set_active_thread(thread: Thread) {
-        let _ = Worker::with_mut(|worker| worker.active_thread.replace(thread)).unwrap();
+        let _ = Self::with_mut(|worker| worker.active_thread.replace(thread))
+            .expect("tried to set active thread on uninitialized worker");
     }
 
     pub fn clear_active_thread() {
-        let _ = Worker::with_mut(|worker| worker.active_thread.take()).unwrap();
+        let _ = Self::with_mut(|worker| worker.active_thread.take())
+            .expect("tried to clear active thread on unitialized worker");
     }
 
     pub fn set_round_end_time(time: EmulatedTime) {
-        let _ = Worker::with_mut(|worker| worker.clock.barrier.replace(time)).unwrap();
+        let _ = Self::with_mut(|worker| worker.clock.barrier.replace(time))
+            .expect("tried to set round time on uninitalized worker");
     }
 
     pub fn round_end_time() -> Option<EmulatedTime> {
-        Worker::with(|worker| worker.clock.barrier).flatten()
+        Self::with(|worker| worker.clock.barrier.clone()).flatten()
     }
 
     pub fn set_current_time(time: EmulatedTime) {
-        let _ = Worker::with_mut(|worker| worker.clock.now.replace(time)).unwrap();
+        let _ = Self::with_mut(|worker| worker.clock.now.replace(time))
+            .expect("tried to set current time on unitialized worker");
     }
 
     pub fn clear_current_time() {
-        let _ = Worker::with_mut(|worker| worker.clock.now.take());
+        let _ = Self::with_mut(|worker| worker.clock.now.take())
+            .expect("tried to clear current time on uninitialized worker");
     }
 
     pub fn current_time() -> Option<EmulatedTime> {
-        Worker::with(|worker| worker.clock.now).flatten()
+        Self::with(|worker| worker.clock.now.clone()).flatten()
     }
 
     pub fn set_last_event_time(time: EmulatedTime) {
-        let _ = Worker::with_mut(|worker| worker.clock.last.replace(time)).unwrap();
+        let _ = Self::with_mut(|worker| worker.clock.last.replace(time))
+            .expect("tried to set last event time on uninitalized worker");
     }
 
     pub fn is_alive() -> bool {
@@ -136,54 +143,60 @@ impl Worker {
     }
 
     pub fn is_bootstrap_active() -> bool {
-        Worker::with(|worker| worker.clock.now.unwrap() < worker.bootstrap_end_time).unwrap()
+        Worker::with(|worker| {
+            worker
+                .clock
+                .now
+                .as_ref()
+                .map_or(false, |now| *now < worker.bootstrap_end_time)
+        })
+        .unwrap_or_else(|| unreachable!())
     }
 
-    pub fn is_scheduler_running() -> bool {
-        Worker::manager().lock().unwrap().is_scheduler_running()
-    }
+    // pub fn is_scheduler_running() -> bool {
+    //     Worker::scheduler()
+    //         .lock()
+    //         .expect("tried to acquire poisoned manager lock")
+    //         .is_running()
+    // }
 
     pub fn worker_id() -> Option<WorkerId> {
         Worker::with(|worker| worker.id)
     }
 
     pub fn worker_pool() -> Arc<Mutex<WorkerPool>> {
-        Worker::with_mut(|worker| worker.pool.clone()).unwrap()
+        Worker::with_mut(|worker| worker.pool.clone())
+            .expect("cannot access worker pool from unitialized worker")
     }
 
-    pub fn manager() -> Arc<Mutex<Manager>> {
-        Worker::worker_pool().lock().unwrap().manager()
-    }
+    // pub fn scheduler() -> Arc<Mutex<Scheduler>> {
+    //     Worker::worker_pool()
+    //         .lock()
+    //         .expect("accessed scheduler through poisoned worker pool lock")
+    //         .scheduler()
+    // }
 
-    pub fn scheduler() -> Arc<Mutex<Scheduler>> {
-        Worker::worker_pool().lock().unwrap().scheduler()
-    }
+    // pub fn schedule_task(task: Task, host: &Host, delay: SimulationTime) -> bool {
+    //     if !Self::is_scheduler_running() {
+    //         return false;
+    //     }
 
-    pub fn schedule_task(task: Task, host: &Host, delay: SimulationTime) -> bool {
-        if !Self::is_scheduler_running() {
-            return false;
-        }
-
-        if let Some(now) = Self::current_time().map(SimulationTime::from) {
-            let event = Event::new(task, now + delay, host);
-            Self::scheduler().lock().unwrap().push(event, host, delay)
-        } else {
-            false
-        }
-    }
+    //     if let Some(now) = Self::current_time().map(SimulationTime::from) {
+    //         let event = Event::new(task, now + delay, host);
+    //         Self::scheduler()
+    //             .lock()
+    //             .expect("tried to acquired poisoned scheduler lock")
+    //             .push(event, host, delay)
+    //     } else {
+    //         false
+    //     }
+    // }
 }
 
-pub struct WorkerPool {
-    manager: Arc<Mutex<Manager>>,
-    scheduler: Arc<Mutex<Scheduler>>,
-}
+pub struct WorkerPool {}
 
 impl WorkerPool {
-    pub fn manager(&self) -> Arc<Mutex<Manager>> {
-        self.manager.clone()
-    }
-
-    pub fn scheduler(&self) -> Arc<Mutex<Scheduler>> {
-        self.scheduler.clone()
+    pub fn new() -> Self {
+        Self {}
     }
 }

@@ -2,7 +2,22 @@ use std::time;
 
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
 
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
 pub struct SimulationTime(Duration);
+
+impl SimulationTime {
+    pub fn from_nanos(nanos: i64) -> Self {
+        Self(Duration::nanoseconds(nanos))
+    }
+
+    pub fn from_micros(micros: i64) -> Self {
+        Self(Duration::microseconds(micros))
+    }
+
+    pub fn from_millis(millis: i64) -> Self {
+        Self(Duration::milliseconds(millis))
+    }
+}
 
 impl From<Duration> for SimulationTime {
     fn from(duration: Duration) -> Self {
@@ -30,7 +45,7 @@ impl std::ops::Rem<Self> for SimulationTime {
     type Output = Self;
 
     fn rem(self, other: Self) -> Self::Output {
-        let lhs = self.0;
+        let mut lhs = self.0;
         let rhs = other.0;
 
         while lhs > rhs {
@@ -41,11 +56,15 @@ impl std::ops::Rem<Self> for SimulationTime {
     }
 }
 
-#[derive(PartialEq, PartialOrd)]
+#[derive(Clone, PartialEq, PartialOrd)]
 pub struct EmulatedTime(DateTime<Utc>);
 
-pub const UNIX_EPOCH: EmulatedTime = NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0).into();
-pub const SIMULATION_START: EmulatedTime = NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0).into();
+lazy_static! {
+    pub static ref UNIX_EPOCH: EmulatedTime =
+        NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0).into();
+    pub static ref SIMULATION_START: EmulatedTime =
+        NaiveDate::from_ymd(2000, 1, 1).and_hms(0, 0, 0).into();
+}
 
 impl EmulatedTime {
     pub fn duration_since(&self, time: &EmulatedTime) -> Duration {
@@ -98,19 +117,17 @@ impl PerfTimer {
     }
 
     pub fn pause(&mut self) {
-        *self = match *self {
-            Self::Running { start, lapsed } => Self::Paused(time::Instant::now() - start + lapsed),
-            _ => *self,
+        if let Self::Running { start, lapsed } = *self {
+            *self = Self::Paused(time::Instant::now() - start + lapsed);
         }
     }
 
     pub fn resume(&mut self) {
-        *self = match *self {
-            Self::Paused(lapsed) => Self::Running {
+        if let Self::Paused(lapsed) = *self {
+            *self = Self::Running {
                 start: time::Instant::now(),
                 lapsed,
-            },
-            _ => *self,
+            }
         }
     }
 
@@ -125,6 +142,14 @@ impl PerfTimer {
         match self {
             Self::Running { start, lapsed } => time::Instant::now() - start + lapsed,
             Self::Paused(lapsed) => lapsed,
+        }
+    }
+
+    pub fn reset(&mut self, start_paused: bool) {
+        *self = if start_paused {
+            Self::new()
+        } else {
+            Self::start()
         }
     }
 }

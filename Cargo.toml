@@ -1,5 +1,6 @@
 [workspace]
 
 members = [
-    "netsim"
+    "netsim",
+    "netsim-gml"
 ]

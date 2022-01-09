@@ -20,15 +20,15 @@ impl Processor {
         }
     }
 
-    pub fn push_ready_worker(&self, worker: usize) {
+    pub fn push_ready_worker(&mut self, worker: usize) {
         self.ready_workers.push(worker);
     }
 
-    pub fn pop_ready_worker(&self) -> Option<usize> {
+    pub fn pop_ready_worker(&mut self) -> Option<usize> {
         self.ready_workers.pop()
     }
 
-    pub fn push_done_worker(&self, worker: usize) {
+    pub fn push_done_worker(&mut self, worker: usize) {
         self.done_workers.push(worker);
     }
 
@@ -60,25 +60,30 @@ impl Processors {
         }
     }
 
-    pub fn push_ready_worker(&self, processor: usize, worker: usize) {
+    pub fn push_ready_worker(&mut self, processor: usize, worker: usize) {
         self.processors[processor].push_ready_worker(worker);
     }
 
-    pub fn push_done_worker(&self, processor: usize, worker: usize) {
+    pub fn push_done_worker(&mut self, processor: usize, worker: usize) {
         self.processors[processor].push_done_worker(worker);
     }
 
-    pub fn pop_worker_to_run_on(&self, processor: usize) -> Option<usize> {
-        for i in 0..self.processors.len() {
-            let from_ith_processor = (processor + i) % self.processors.len();
-            let worker = self.processors[from_ith_processor].pop_ready_worker();
+    pub fn pop_worker_to_run_on(&mut self, processor: usize) -> Option<usize> {
+        let worker = self.processors[processor..]
+            .iter_mut()
+            .map(|p| p.pop_ready_worker())
+            .filter(Option::is_some)
+            .next();
 
-            if worker.is_some() {
-                return worker;
-            }
-        }
-
-        None
+        worker
+            .or_else(|| {
+                self.processors[processor..]
+                    .iter_mut()
+                    .map(|p| p.pop_ready_worker())
+                    .filter(Option::is_some)
+                    .next()
+            })
+            .flatten()
     }
 
     pub fn finish_task(&mut self) {
